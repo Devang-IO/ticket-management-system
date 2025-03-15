@@ -1,16 +1,26 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../utils/supabase"; // Import Supabase client
-import { X } from "lucide-react";
+import { X, Eye, EyeOff } from "lucide-react"; // Import eye icons for password visibility
 
 export default function ProfileModal({ onClose, onProfileUpdate }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [ticketStats, setTicketStats] = useState({ open: 0, closed: 0, assigned: 0, recent: [] });
-  const [formData, setFormData] = useState({ name: "", email: "", role: "", profile_picture: "", phone: "" });
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    role: "",
+    profile_picture: "",
+    phone: "",
+    oldPassword: "", // Add old password field
+    newPassword: "", // Rename password to newPassword
+  });
   const [newProfilePic, setNewProfilePic] = useState(null); // For file upload
   const [uploadLoading, setUploadLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [showOldPassword, setShowOldPassword] = useState(false); // Toggle old password visibility
+  const [showNewPassword, setShowNewPassword] = useState(false); // Toggle new password visibility
 
   // Fetch user profile data
   useEffect(() => {
@@ -108,7 +118,7 @@ export default function ProfileModal({ onClose, onProfileUpdate }) {
       }
 
       // Update user data in Supabase
-      const { error } = await supabase
+      const { error: profileError } = await supabase
         .from("users")
         .update({
           name: updatedData.name,
@@ -118,9 +128,39 @@ export default function ProfileModal({ onClose, onProfileUpdate }) {
         })
         .eq("id", user.id);
 
-      if (error) {
-        setErrorMessage("Failed to update profile: " + error.message);
+      if (profileError) {
+        setErrorMessage("Failed to update profile: " + profileError.message);
       } else {
+        // Update password if a new password is provided
+        if (updatedData.newPassword) {
+          // Validate old password
+          if (!updatedData.oldPassword) {
+            setErrorMessage("Please enter your old password.");
+            return;
+          }
+
+          // Reauthenticate user with old password
+          const { error: reauthError } = await supabase.auth.signInWithPassword({
+            email: user.email,
+            password: updatedData.oldPassword,
+          });
+
+          if (reauthError) {
+            setErrorMessage("Old password is incorrect.");
+            return;
+          }
+
+          // Update password
+          const { error: passwordError } = await supabase.auth.updateUser({
+            password: updatedData.newPassword,
+          });
+
+          if (passwordError) {
+            setErrorMessage("Failed to update password: " + passwordError.message);
+            return;
+          }
+        }
+
         setUser(updatedData);
         localStorage.setItem("username", updatedData.name); // Update username in localStorage
         localStorage.setItem("profilePicture", updatedData.profile_picture); // Update profile picture in localStorage
@@ -132,6 +172,7 @@ export default function ProfileModal({ onClose, onProfileUpdate }) {
     } finally {
       setUploadLoading(false);
       setNewProfilePic(null);
+      setFormData({ ...formData, oldPassword: "", newPassword: "" }); // Clear password fields
     }
   };
 
@@ -162,7 +203,7 @@ export default function ProfileModal({ onClose, onProfileUpdate }) {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-      <div className="p-8 w-full max-w-2xl bg-white rounded-xl shadow-lg text-center relative">
+      <div className="p-8 w-full max-w-2xl bg-white rounded-xl shadow-lg text-center relative max-h-[90vh] overflow-y-auto">
         {/* Close button */}
         <button onClick={onClose} className="absolute top-3 right-3 text-gray-600 hover:text-gray-800">
           <X size={24} />
@@ -246,6 +287,50 @@ export default function ProfileModal({ onClose, onProfileUpdate }) {
                   className="mt-1 block w-full border border-gray-300 rounded-md text-black shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
+              <div>
+                <label htmlFor="oldPassword" className="block text-sm font-medium text-gray-700 text-left">
+                  Old Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showOldPassword ? "text" : "password"}
+                    id="oldPassword"
+                    name="oldPassword"
+                    value={formData.oldPassword || ""}
+                    onChange={handleChange}
+                    className="mt-1 block w-full border border-gray-300 rounded-md text-black shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Enter old password"
+                  />
+                  <button
+                    onClick={() => setShowOldPassword(!showOldPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-sm leading-5"
+                  >
+                    {showOldPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label htmlFor="newPassword" className="block text-sm font-medium text-gray-700 text-left">
+                  New Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showNewPassword ? "text" : "password"}
+                    id="newPassword"
+                    name="newPassword"
+                    value={formData.newPassword || ""}
+                    onChange={handleChange}
+                    className="mt-1 block w-full border border-gray-300 rounded-md text-black shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Enter new password"
+                  />
+                  <button
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-sm leading-5"
+                  >
+                    {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
               <div className="flex space-x-2 pt-3">
                 <button
                   onClick={handleSave}
@@ -280,7 +365,7 @@ export default function ProfileModal({ onClose, onProfileUpdate }) {
               </div>
               <button
                 onClick={() => setEditing(true)}
-                className="mt-4 inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className="mt-4 inline-flex items-center px-4 py-2 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
                 Edit Profile
               </button>
